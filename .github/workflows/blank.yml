@@ -1,0 +1,85 @@
+name: Docker Image Ci-Cd Pipeline
+on:
+  push:
+     branches: [ main ]
+  pull_request:
+     branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  Setting-Up-The-Node-Env:
+    runs-on: ubuntu-latest 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: setup node
+        uses: actions/setup-node@master
+        with:
+          node-version: 14.x
+
+  Installing-App-Dependencies:
+    runs-on: ubuntu-latest
+    needs: Setting-Up-The-Node-Env
+    steps:
+      - uses: actions/checkout@v2
+      - name: Clean Install Node Modules
+        run: |
+          npm ci     
+    
+  Scanning:
+    runs-on: ubuntu-latest
+    needs: Installing-App-Dependencies
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}
+          exit-code: '0'
+          ignore-unfixed: true 
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          vuln-type: 'os,library'
+          severity: 'LOW,MEDIUM'
+
+  Docker-Build-and-Push-to-Artifactory:
+    runs-on: ubuntu-latest
+    needs: Scanning
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Jfrog Login
+        uses: docker/login-action@v1
+        with:
+          registry: underconstruction.jfrog.io
+          username: ${{ secrets.JFROG_USERNAME}}
+          password: ${{ secrets.JFROG_PASSWORD}}
+          
+      - name: Increment Step
+        id: increment-version
+        uses: ./.github/actions
+        with:
+          version-level: '-m'
+
+      - name: Building the Docker Image
+        run: docker build --tag underconstruction.jfrog.io/docker-dev/cell-game:version-${{ steps.increment-version.outputs.version }} .
+          #run: docker build --tag underconstruction.jfrog.io/docker-dev/cell-game:version-${{ github.run_id }}-${{ github.run_attempt }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'underconstruction.jfrog.io/docker-dev/cell-game:version-${{ github.run_id }}-${{ github.run_attempt }}'
+          exit-code: '0'
+          ignore-unfixed: true 
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          vuln-type: 'os,library'
+          severity: 'LOW,MEDIUM'
+
+      - name: Pushing the Image into our Artifactory
+        run: docker push underconstruction.jfrog.io/docker-dev/cell-game:version-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: 'trivy-results.sarif
