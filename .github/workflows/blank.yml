@@ -1,54 +1,29 @@
-name: Docker Image Ci-Cd Pipeline
+name: Docker Image CI
+
+env:
+  DOCKER_REGISTRY: ramkannans.jfrog.io
+  APP_NAME: slipway-docker-dev-local/slipway-hello-world
+  JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
+
 on:
   push:
-     branches: [ main ]
+    branches: [ main ]
   pull_request:
-     branches: [ main ]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  Setting-Up-The-Node-Env:
-    runs-on: self-hosted 
+
+  build:
+
+    runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: setup node
-        uses: actions/setup-node@master
-        with:
-          node-version: 14.x
+    - uses: actions/checkout@v3
+    - name: Docker Login
+      run: docker login -u "dwijeshm3@gmail.com" -p "$JFROG_PASSWORD" $DOCKER_REGISTRY
 
-  Installing-App-Dependencies:
-    runs-on: self-hosted
-    needs: Setting-Up-The-Node-Env
-    steps:
-      - uses: actions/checkout@v2
-      - name: Clean Install Node Modules
-        run: |
-          npm ci     
-    
+    - name: Build the Docker image
+      run: docker build . --file Dockerfile --tag "$DOCKER_REGISTRY/$APP_NAME:1.0.${{ github.run_id }}"
 
-  Docker-Build-and-Push-to-Artifactory:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v2
-      
-      - name: Jfrog Login
-        uses: docker/login-action@v1
-        with:
-          registry: underconstruction.jfrog.io
-          username: ${{ secrets.JFROG_USERNAME}}
-          password: ${{ secrets.JFROG_PASSWORD}}
-          
-      - name: Increment Step
-        id: increment-version
-        uses: ./.github/actions
-        with:
-          version-level: '-m'
-
-      - name: Building the Docker Image
-        run: docker build --tag underconstruction.jfrog.io/docker-dev/cell-game:version-${{ steps.increment-version.outputs.version }} .
-          #run: docker build --tag underconstruction.jfrog.io/docker-dev/cell-game:version-${{ github.run_id }}-${{ github.run_attempt }} .
-
-      - name: Pushing the Image into our Artifactory
-        run: docker push underconstruction.jfrog.io/docker-dev/cell-game:version-${{ github.run_id }}-${{ github.run_attempt }}
-
+    - name: Push to JFrog
+      run: docker push "$DOCKER_REGISTRY/$APP_NAME:1.0.${{ github.run_id }}"
